@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Binomial Distribution PMF & CDF Calculator</title>
+    <!-- Tailwind CSS for modern layout styling -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- Chart.js for rendering the bar chart -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- Chart.js Annotation Plugin for the vertical mean line -->
+    <script src="https://jsdelivr.net"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="bg-white p-6 md:p-8 rounded-2xl shadow-xl w-full max-w-4xl border border-slate-100">
+        <h1 class="text-2xl font-bold text-slate-900 mb-6 text-center">Binomial Distribution Calculator</h1>
+        
+        <!-- Input Parameters Section -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div>
+                <label for="inputN" class="block text-sm font-semibold text-slate-700 mb-1">Number of Trials (n):</label>
+                <input type="number" id="inputN" value="20" min="1" max="500" step="1" 
+                       class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div>
+                <label for="inputP" class="block text-sm font-semibold text-slate-700 mb-1">Success Probability (p):</label>
+                <input type="number" id="inputP" value="0.5" min="0" max="1" step="0.01" 
+                       class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div>
+                <label for="inputK" class="block text-sm font-semibold text-slate-700 mb-1">Success Threshold (k):</label>
+                <input type="number" id="inputK" value="10" min="0" max="20" step="1" 
+                       class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+        </div>
+
+        <!-- CDF Computation Results Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div class="bg-blue-50 border border-blue-200 p-4 rounded-xl">
+                <span class="text-xs uppercase tracking-wider font-bold text-blue-600 block mb-1">Cumulative Probability (CDF)</span>
+                <div class="text-xl font-extrabold text-blue-900" id="resultCdf">P(X ≤ k) = 0.0000</div>
+                <p class="text-sm text-blue-700 mt-2 font-medium">
+                    "P(X ≤ k) means the probability of getting k or fewer successes."
+                </p>
+            </div>
+            <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl">
+                <span class="text-xs uppercase tracking-wider font-bold text-emerald-600 block mb-1">Survival Probability</span>
+                <div class="text-xl font-extrabold text-emerald-900" id="resultSurvival">P(X > k) = 0.0000</div>
+                <p class="text-sm text-emerald-700 mt-2 font-medium">
+                    This represents the probability of getting strictly more than k successes.
+                </p>
+            </div>
+        </div>
+
+        <!-- Chart Display Box -->
+        <div class="relative h-96 w-full mt-4">
+            <canvas id="pmfChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // DOM element caches
+        const inputN = document.getElementById('inputN');
+        const inputP = document.getElementById('inputP');
+        const inputK = document.getElementById('inputK');
+        const resultCdf = document.getElementById('resultCdf');
+        const resultSurvival = document.getElementById('resultSurvival');
+        const ctx = document.getElementById('pmfChart').getContext('2d');
+        
+        let chartInstance = null;
+
+        // Logarithm-based factorial mapping to eliminate numerical overflow limits
+        function logFactorial(num) {
+            let logFact = 0;
+            for (let i = 1; i <= num; i++) {
+                logFact += Math.log(i);
+            }
+            return logFact;
+        }
+
+        // Exact PMF computation using logs for computing stability
+        function binomialPMF(x, n, p) {
+            if (p === 0) return x === 0 ? 1 : 0;
+            if (p === 1) return x === n ? 1 : 0;
+            if (x < 0 || x > n) return 0;
+            
+            const logBinomialCoeff = logFactorial(n) - logFactorial(x) - logFactorial(n - x);
+            const logProb = logBinomialCoeff + (x * Math.log(p)) + ((n - x) * Math.log(1 - p));
+            return Math.exp(logProb);
+        }
+
+        // Primary update control loop
+        function updateCalculator() {
+            let n = parseInt(inputN.value);
+            let p = parseFloat(inputP.value);
+            let k = parseInt(inputK.value);
+
+            // Sanitise inputs safely
+            if (isNaN(n) || n < 1) n = 1;
+            if (n > 500) n = 500;
+            if (isNaN(p) || p < 0) p = 0;
+            if (p > 1) p = 1;
+
+            // Constrain k bounds matching dynamic variations of n
+            inputK.max = n;
+            if (isNaN(k) || k < 0) k = 0;
+            if (k > n) k = n;
+            
+            // Adjust input visual numbers if value was rewritten/clamped
+            inputN.value = n;
+            inputP.value = p;
+            inputK.value = k;
+
+            const labels = [];
+            const dataPoints = [];
+            const backgroundColors = [];
+            const borderColors = [];
+            
+            let cdfValue = 0;
+
+            // Generate values and calculate continuous cumulative accumulation
+            for (let x = 0; x <= n; x++) {
+                labels.push(x);
+                const pmfVal = binomialPMF(x, n, p);
+                dataPoints.push(pmfVal);
+
+                if (x <= k) {
+                    cdfValue += pmfVal;
+                    // Blue highlight color matching the X <= k selection window
+                    backgroundColors.push('rgba(59, 130, 246, 0.85)');
+                    borderColors.push('rgb(29, 78, 216)');
+                } else {
+                    // Muted neutral gray color for elements outside selection threshold
+                    backgroundColors.push('rgba(203, 213, 225, 0.5)');
+                    borderColors.push('rgb(148, 163, 184)');
+                }
+            }
+
+            // Cap floating errors perfectly at 1
+            if (cdfValue > 1) cdfValue = 1;
+            const survivalValue = 1 - cdfValue;
+
+            // Update user text strings
+            resultCdf.innerText = `P(X ≤ ${k}) = ${cdfValue.toFixed(4)}`;
+            resultSurvival.innerText = `P(X > ${k}) = ${Math.max(0, survivalValue).toFixed(4)}`;
+
+            const mean = n * p;
+
+            // Refresh canvas instances cleanly
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: dataPoints,
+                        backgroundColor: backgroundColors,
+                        borderColor: borderColors,
+                        borderWidth: 1,
+                        borderRadius: 3,
+                        barPercentage: 0.9
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Number of Successes X',
+                                font: { weight: 'bold', size: 12 }
+                            },
+                            grid: { display: false }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Probability P(X)',
+                                font: { weight: 'bold', size: 12 }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: function(context) {
+                                    return `X = ${context.label}`;
+                                },
+                                label: function(context) {
+                                    return `P(X=${context.label}) = ${context.parsed.y.toFixed(5)}`;
+                                }
+                            }
+                        },
+                        annotation: {
+                            annotations: {
+                                meanLine: {
+                                    type: 'line',
+                                    xMin: mean,
+                                    xMax: mean,
+                                    borderColor: 'rgb(239, 68, 68)',
+                                    borderWidth: 2,
+                                    borderDash:,
+                                    label: {
+                                        display: true,
+                                        content: `Mean (μ) = ${mean.toFixed(2)}`,
+                                        position: 'start',
+                                        backgroundColor: 'rgba(239, 68, 68, 0.95)',
